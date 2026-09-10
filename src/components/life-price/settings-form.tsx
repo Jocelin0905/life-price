@@ -64,7 +64,7 @@ export function SettingsForm({
 
       <div className="hourly-preview" aria-live="polite">
         <span>你的每小时收入</span>
-        <strong>{hourlyIncome ? formatCurrency(hourlyIncome) : "—"}</strong>
+        <strong>{hourlyIncome ? formatCurrency(hourlyIncome) : "待计算"}</strong>
       </div>
       {error && <p className="field-error" role="alert">{error}</p>}
       <button className="primary-button" type="submit" disabled={!parsed}>{submitLabel}</button>
