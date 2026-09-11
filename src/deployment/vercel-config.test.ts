@@ -12,6 +12,7 @@ describe("Vercel static deployment configuration", () => {
     expect(vercelConfig).toEqual({
       buildCommand: "pnpm run build:vercel",
       outputDirectory: "out",
+      framework: null,
     });
   });
 });
