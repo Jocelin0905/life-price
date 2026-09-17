@@ -1,117 +1,144 @@
-# vinext-starter
+# Life Price
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+把商品价格换算成需要付出的工作时间，让消费成本变得更具体。
 
-## Prerequisites
+> Status: V1 / Live
 
-- Node.js `>=22.13.0`
-- Windows, macOS, or Linux; Git is required only for publishing, and Bash is not required for initialization or the project commands
+## Live Demo
 
-## Sites Lifecycle
+[Open Production](https://life-price-jocelin3.vercel.app)
 
-The bundled Sites initializer copies this starter into the project and runs its locked dependency install before returning the checkout. Edit the source under `app/`, use `npm run dev` for the Codex local preview, and run the project validation before hosting. The remote Sites builder also runs `npm run build` against the pushed commit. Do not rerun the dependency install unless dependencies are absent or the lockfile changed.
+## Portfolio
 
-This starter does not use `wrangler.jsonc`.
+[Things I Wish Existed](https://things-i-wish-existed.vercel.app)
 
-`install:ci` runs `npm ci` once against this checkout's bundled lockfile, explicitly targeting the project and disabling parent-workspace discovery. It includes dev and optional dependencies required for builds and previews even when production/omit settings would exclude them. It defaults Sharp to prebuilt binaries unless the caller explicitly configures Sharp or a source build. It uses `--prefer-offline --no-audit --no-fund`, reuses the configured npm cache, and leaves network concurrency, retries, timeouts, and lifecycle-script policy to npm's configuration. Retain the installer session until it finishes; do not overlap installers for the same checkout.
+---
 
-`scripts/sites-env.mjs` preserves the caller's HOME, npm cache, proxy, XDG, and temporary-directory configuration while defaulting Wrangler and Miniflare state to the checkout. If npm reports an unwritable cache, select a writable path with `npm_config_cache` for that install. The `dev` and `start` scripts also keep Wrangler logs inside the checkout. Generated `.sites-runtime/` and `.wrangler/` directories are disposable and ignored by Git.
+## Overview
 
-`npm run dev` uses `vinext dev` for the live Vite preview with HMR, starting at port 5173. Vinext records the running server in ignored `.vinext/` state and rejects another start for the same checkout while that process is alive; reuse its printed URL. It recovers stale state after a stopped process. Pass `--port <port>` or `--hostname <host>` after `npm run dev --` when needed; keep Codex previews on loopback. Like the Sites package, this relies on Vinext's advisory lock; exactly simultaneous starts can race.
+Life Price 不只显示一件商品多少钱，还会告诉用户需要用多少工作时间去交换。用户先设置自己的收入与工作节奏，再输入价格，产品会给出对应的工作小时和工作日。换算结果继续推进到“值得交换 / 算了”的真实决策，而不是停留在一个数字上。
 
-The bundled Sites Vite plugin simulates ChatGPT sign-in only for loopback development requests. Visit `/signin-with-chatgpt?return_to=/` to sign in as `local_seedy` (`seedy@sites.test`, display name `Seedy`) and `/signout-with-chatgpt?return_to=/` to sign out. The development cookie preserves that identity across server restarts. This does not exercise real ChatGPT OAuth and is not included in production builds; hosted authentication remains dispatch-owned.
+---
 
-The Worker uses `vinext/server/fetch-handler`, including Vinext's config-aware image handling. After building, `npm start` runs that Worker locally through Wrangler on `127.0.0.1`, sharing `.wrangler/state` with dev preview and local D1 migrations; it does not deploy the site or simulate sign-in. Use the URL printed by the server. Pass `npm start -- --port <port>` to select a different built-preview port.
+## Screenshots
 
-Local previews use Miniflare's placeholder `Request.cf` metadata without a network lookup. Set `CLOUDFLARE_CF_FETCH_ENABLED=true` to opt into fetching preview metadata; this setting does not change hosted request metadata.
+![Life Price 的收入设置、价格换算与消费历史](docs/screenshots/life-price-overview.webp)
 
-Local tool usage metrics are disabled by default. Set `WRANGLER_SEND_METRICS=true` to opt in.
+---
 
-## Included Shape
+## Core Features
 
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `@cloudflare/workers-types` provides Worker types; `cloudflare-env.d.ts` declares optional `DB`/`BUCKET` bindings—update these declarations if binding names change
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+- 根据月收入、每周工作天数和每天工作小时建立个人时薪基准
+- 将商品价格换算成工作时间和工作日
+- 可选计算单次使用成本与单次等价工作时间
+- 通过“值得交换 / 算了”推进消费决策
+- 保存选择“算了”的消费记录，并按月份汇总保住的金钱与时间
+- 编辑收入设置、删除单条记录或清空本地数据
+- 使用 localStorage 在当前浏览器持久化设置与记录
 
-## Workspace Auth Headers
+---
 
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
+## Product Decisions / Build Notes
 
-The user ID is stable for the same user on the same Site and different across Sites. Use it as the durable user key; use email and name for display or contact purposes.
+### 1. 用真实工作节奏建立时薪基准
 
-SIWC-authenticated workspace sites may also receive `oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty `name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by `oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
+**Decision**  
+不采用“月收入 ÷ 30”的简单估算，而是结合每周工作天数和每天工作小时计算个人时薪。
 
-Treat the full name as optional and fall back to email when it is absent:
+**Reason**  
+相同月收入背后可能对应完全不同的工作投入，只有纳入工作节奏，换算结果才接近用户真实付出的时间。
 
-```tsx
-import { headers } from "next/headers";
+**Result / Trade-off**  
+首次使用需要多填写两个字段，但换算语义更准确。
 
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
+### 2. 历史记录保留当时的决策语境
 
-  const displayName = fullName ?? email;
-  // ...
-}
+**Decision**  
+修改收入或工作节奏后，只影响未来的新换算，不重算已有记录。
+
+**Reason**  
+历史记录表达的是用户当时做决定时的收入基准和时间成本。
+
+**Result / Trade-off**  
+新旧记录可能采用不同基准，但每条记录都保留了原始决策语境。
+
+### 3. 让计算结果进入真实选择
+
+**Decision**  
+将“值得交换 / 算了”设计成换算后的下一步，而不是装饰按钮。
+
+**Reason**  
+产品价值不只是给出公式结果，还要把数字转化成用户能理解并采取行动的决策语言。
+
+**Result / Trade-off**  
+V1 只保存选择“算了”的记录，保持历史页聚焦于没有发生的消费。
+
+### 4. 建立正式发布链路
+
+**Problem**  
+项目需要从原托管环境迁移到稳定的 Production 发布流程。
+
+**Solution**  
+使用 Next.js 静态导出适配 Vercel，并建立 GitHub → Vercel 自动部署。
+
+**Result**  
+Production 由仓库分支驱动，后续代码更新可以沿用同一发布链路。
+
+---
+
+## What I Learned
+
+- 计算器产品的关键不只是公式，还包括怎样把结果转成可理解的决策语言。
+- 历史数据不一定应该跟随最新设置重算，数据语义比“始终保持最新”更重要。
+- 跑通了 GitHub、分支、PR、Vercel Production 与自动部署的基本工作流。
+
+---
+
+## Tech Stack
+
+- React
+- TypeScript
+- Next.js（静态导出）
+- Vinext（本地开发工具链）
+- localStorage
+- Vercel
+- pnpm
+
+---
+
+## Local Development
+
+```bash
+pnpm install
+pnpm dev
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+Vercel production build:
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use the returned `userId` as the stable user key for user-owned records; do not use email as a durable identifier.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send anonymous visitors through Sign in with ChatGPT.
-- In a Server Component, start sign-in with `<a href={chatGPTSignInPath(returnTo)} target="_top">`. The auth helper module is server-only; do not import it into a Client Component.
-- Do not use `fetch`, XHR, a client-side router, or a framework link that can prefetch the sign-in route. SIWC must start as a top-level navigation.
-- Never request the AuthAPI authorization endpoint directly. The dispatch-owned `/signin-with-chatgpt` route must start the SIWC flow.
-- Use `chatGPTSignOutPath(returnTo)` for browser sign-out links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the OAuth cookies, and identity header injection. Do not implement app routes for those reserved paths. Routes that do not import and call the helper remain anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the Sites hosting platform's access policy controls for workspace-wide restrictions, or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Local D1 migrations
-
-For a D1-backed local preview, generate SQL with `npm run db:generate`. Build once through the Sites skill's build entrypoint (or `npm run build` for standalone use) to generate `dist/server/wrangler.json`, rebuilding if bindings change. From the project root, apply each pending migration in order:
-
-```sh
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_example.sql
+```bash
+pnpm run build:vercel
 ```
 
-Replace the filename with the pending migration and `DB` with your D1 binding name if different. Use `.wrangler/state`, not `.wrangler/state/v3`; Wrangler adds the versioned directories. Do not replay migrations already applied locally. This updates only the preview database; publishing applies production migrations separately.
+---
 
-## Diagnostic Commands
+## Data & Privacy
 
-- `npm run install:ci`: perform the one locked dependency install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: preview the built Worker locally with D1/R2 support
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+- 收入设置与消费记录仅保存在当前浏览器
+- 不需要账号或登录
+- 不会将收入或消费数据上传到服务器
 
-When using the Sites plugin, follow its skill instructions for installation, builds, and publishing. These npm commands remain available for standalone use.
+---
 
-Like the Sites package, `npm run build` runs `vinext build` directly; it does not require a host `timeout` command.
+## Current Status
 
-## Learn More
+**V1 / Live**
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+当前版本已经可以通过 Production URL 公开访问。后续迭代以真实需求为准，不主动扩大 V1 范围。
+
+---
+
+## More Projects
+
+更多作品：
+
+[Things I Wish Existed →](https://things-i-wish-existed.vercel.app/)
